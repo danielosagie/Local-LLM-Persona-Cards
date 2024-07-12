@@ -4,3 +4,4 @@ sentence_transformers
 python-dotenv
 altair<5
 streamlit
+langchain
