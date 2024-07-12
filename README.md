@@ -2,7 +2,7 @@
 
 ## Overview
 
-LLM Persona Cards Creator is a powerful, interactive tool leveraging advanced Language Models (LLMs) to generate detailed persona cards.
+LLM Persona Cards Creator is a interactive tool leveraging any LLM (on HuggingFace) to generate detailed persona cards.
 
 ## Features
 
