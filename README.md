@@ -35,17 +35,25 @@ LLM Persona Cards Creator is a powerful, interactive tool leveraging advanced La
 
 ## Usage
 
-1. Start the Streamlit app:
-   ```bash
-   streamlit run frontend.py
-   ```
+For the Persona Generator:
 
+1. Start the PersonaCard Streamlit app:
+   ```bash
+   streamlit run PersonaCard.py
+   ```
+For the Persona Viewer App:
+
+1. Start the Persona Json Viewer Streamlit app:
+   ```bash
+   streamlit run PersonaCard Json Viewer.py
+   ```
+   
 2. Open your web browser and navigate to the URL provided by Streamlit (typically `http://localhost:8501`).
 
 3. In the sidebar, choose between "Local HuggingFace" or "HPC Server" LLM options.
 
 4. For Local HuggingFace:
-   - Enter the model name (e.g., "gpt2", "facebook/opt-350m")
+   - Enter the model name from huggingface (e.g., "gpt2", "meta-llama/Meta-Llama-3-8B")
    - Click "Initialize Local LLM"
 
 5. For HPC Server:
