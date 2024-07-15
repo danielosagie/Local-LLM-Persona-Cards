@@ -36,7 +36,7 @@ LLM Persona Cards Creator is an interactive tool leveraging various LLMs (includ
 4. (Optional) Install Ollama:
     Visit the Ollama installation page for instructions specific to your operating system. After installation, run the following command to pull the Llama 3 8B model:
     ```bash
-    ollama pull llama2:8b
+    ollama pull llama3:8b
     ```
 
 ## Usage
@@ -60,7 +60,7 @@ Open your web browser and navigate to the URL provided by Streamlit (typically h
 In the sidebar, choose between "Local HuggingFace", "HPC Server", or "Ollama" LLM options.
 
 #### For Local HuggingFace:
-Enter the model name from HuggingFace (e.g., `gpt2`, `meta-llama/Llama-2-8b-chat-hf`)
+Enter the model name from HuggingFace (e.g., `gpt2`, `meta-llama/Meta-Llama-3-8B`)
 Click "Initialize Local LLM"
 
 #### For HPC Server:
@@ -68,7 +68,7 @@ Enter the endpoint URL and your HuggingFace API token
 Click "Initialize HPC LLM"
 
 #### For Ollama:
-Enter the model name (e.g., `llama2:8b`)
+Enter the model name (e.g., `llama3:8b`)
 Click "Initialize Ollama LLM"
 
 Use the "Test Connection" button to verify LLM functionality. Begin your conversation in the chat interface to create your persona. View and download the generated persona data from the sidebar. Use the "Rerank Persona Data" feature to reorganize traits based on specific goals.
