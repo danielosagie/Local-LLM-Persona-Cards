@@ -2,11 +2,11 @@
 
 ## Overview
 
-LLM Persona Cards Creator is a interactive tool leveraging any LLM (on HuggingFace) to generate detailed persona cards.
+LLM Persona Cards Creator is an interactive tool leveraging various LLMs (including HuggingFace models and Ollama) to generate detailed persona cards.
 
 ## Features
 
-- Dual LLM support: Local HuggingFace models, Local Ollama models, and remote HPC server endpoints
+- Triple LLM support: Local HuggingFace models, Local Ollama models, and remote HPC server endpoints
 - Interactive chat interface for persona development
 - Real-time persona data visualization
 - Customizable system prompts to guide LLM behavior
@@ -17,61 +17,65 @@ LLM Persona Cards Creator is a interactive tool leveraging any LLM (on HuggingFa
 ## Installation
 
 1. Clone the repository:
-   ```bash
-   git clone https://github.com/your-username/llm-persona-cards.git
-   cd llm-persona-cards
-   ```
+    ```bash
+    git clone https://github.com/your-username/llm-persona-cards.git
+    cd llm-persona-cards
+    ```
 
 2. Set up a virtual environment (optional but recommended):
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
-   ```
+    ```bash
+    python -m venv venv
+    source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
+    ```
 
 3. Install the required dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+4. (Optional) Install Ollama:
+    Visit the Ollama installation page for instructions specific to your operating system. After installation, run the following command to pull the Llama 3 8B model:
+    ```bash
+    ollama pull llama2:8b
+    ```
 
 ## Usage
 
-For the Persona Generator:
+### For the Persona Generator:
 
-1. Start the PersonaCard Streamlit app:
-   ```bash
-   streamlit run PersonaCard.py
-   ```
-For the Persona Viewer App:
+Start the PersonaCard Streamlit app:
+    ```bash
+    streamlit run PersonaCard.py
+    ```
 
-1. Start the Persona Json Viewer Streamlit app:
-   ```bash
-   streamlit run PersonaCard Json Viewer.py
-   ```
-   
-2. Open your web browser and navigate to the URL provided by Streamlit (typically `http://localhost:8501`).
+### For the Persona Viewer App:
 
-3. In the sidebar, choose between "Local HuggingFace" or "HPC Server" LLM options.
+Start the Persona Json Viewer Streamlit app:
+    ```bash
+    streamlit run PersonaCard Json Viewer.py
+    ```
 
-4. For Local HuggingFace:
-   - Enter the model name from huggingface (e.g., "gpt2", "meta-llama/Meta-Llama-3-8B")
-   - Click "Initialize Local LLM"
+Open your web browser and navigate to the URL provided by Streamlit (typically http://localhost:8501).
 
-5. For HPC Server:
-   - Enter the endpoint URL and your HuggingFace API token
-   - Click "Initialize HPC LLM"
+In the sidebar, choose between "Local HuggingFace", "HPC Server", or "Ollama" LLM options.
 
-6. Use the "Test Connection" button to verify LLM functionality.
+#### For Local HuggingFace:
+Enter the model name from HuggingFace (e.g., `gpt2`, `meta-llama/Llama-2-8b-chat-hf`)
+Click "Initialize Local LLM"
 
-7. Begin your conversation in the chat interface to create your persona.
+#### For HPC Server:
+Enter the endpoint URL and your HuggingFace API token
+Click "Initialize HPC LLM"
 
-8. View and download the generated persona data from the sidebar.
+#### For Ollama:
+Enter the model name (e.g., `llama2:8b`)
+Click "Initialize Ollama LLM"
 
-9. Use the "Rerank Persona Data" feature to reorganize traits based on specific goals.
+Use the "Test Connection" button to verify LLM functionality. Begin your conversation in the chat interface to create your persona. View and download the generated persona data from the sidebar. Use the "Rerank Persona Data" feature to reorganize traits based on specific goals.
 
 ## Configuration
 
-- Modify the `system_message` in the `LLMProcessor` class to adjust the AI's base behavior.
-- Adjust LLM parameters in the `initialize_local_llm` and `initialize_hpc_llm` methods for fine-tuned performance.
+Modify the `system_message` in the `LLMProcessor` class to adjust the AI's base behavior. Adjust LLM parameters in the `initialize_local_llm`, `initialize_hpc_llm`, and `initialize_ollama` methods for fine-tuned performance.
 
 ## API Reference
 
@@ -79,10 +83,10 @@ For the Persona Viewer App:
 
 The core class managing LLM interactions and persona data processing.
 
-#### Methods:
-
+**Methods:**
 - `initialize_local_llm(model_name)`: Set up a local HuggingFace model.
 - `initialize_hpc_llm(endpoint_url, api_token)`: Configure a remote HPC LLM endpoint.
+- `initialize_ollama(model_name)`: Set up a local Ollama model.
 - `process_with_llm(prompt)`: Generate LLM response for a given prompt.
 - `test_connection()`: Verify LLM connectivity and responsiveness.
 - `merge_json(existing_data, new_data)`: Combine new persona data with existing information.
@@ -91,11 +95,12 @@ The core class managing LLM interactions and persona data processing.
 
 ## Dependencies
 
-- streamlit
-- langchain
-- transformers
-- torch
-- sentence-transformers
+- `streamlit`
+- `langchain`
+- `transformers`
+- `torch`
+- `sentence-transformers`
+- `ollama` (optional, for local Ollama models)
 
 ## Contributing
 
@@ -107,11 +112,19 @@ The core class managing LLM interactions and persona data processing.
 
 ## License
 
-Distributed under the MIT License. See `LICENSE` for more information.
+Distributed under the MIT License. See LICENSE for more information.
 
 ## Acknowledgements
+
+- Streamlit
+- LangChain
+- Hugging Face Transformers
+- SentenceTransformers
+- Ollama
+
 
 - [Streamlit](https://streamlit.io/)
 - [LangChain](https://github.com/hwchase17/langchain)
 - [Hugging Face Transformers](https://huggingface.co/transformers/)
 - [SentenceTransformers](https://www.sbert.net/)
+- [Ollama](https://ollama.com/library/llama3)
