@@ -13,8 +13,9 @@ class LLMProcessor:
     def __init__(self, progress_callback=None):
         self.progress_callback = progress_callback
         self.llm = None
+        self.ongoing_persona = {}
         self.system_message = '''
-        You are an AI assistant helping to create a persona card. Respond to the user's input by providing relevant information in JSON format. Include categories such as Education, Experience, Skills, Strengths, Goals, and Values. Keep your responses concise and relevant.
+        You are an AI assistant helping to create a persona card. Respond to the user's input by providing and/or matching relevant information in JSON format. Include categories such as Education, Experience, Skills, Strengths, Goals, and Values. Keep your responses concise and relevant.
 
         Example response format:
         {
@@ -97,10 +98,32 @@ class LLMProcessor:
             if self.progress_callback:
                 self.progress_callback(1, f"Failed to initialize Ollama LLM: {str(e)}")
             raise
+    
+    def compare_with_job_description(self, persona_data, job_description):
+        prompt = f"""
+        Given the following persona data:
+        {json.dumps(persona_data, indent=2)}
 
+        And the following job description:
+        {job_description}
+
+        Provide a detailed comparison analysis in JSON format with the following structure:
+        {{
+            "match_percentage": float,
+            "strengths": [list of strengths that align with the job],
+            "gaps": [list of areas where the persona lacks required skills or experience],
+            "recommendations": [list of suggestions for improving the match]
+        }}
+        """
+        response = self.process_with_llm(prompt)
+        try:
+            return json.loads(response)
+        except json.JSONDecodeError:
+            return {"error": "Failed to parse comparison result"}
+    
     def update_system_message(self, new_message):
         self.system_message = new_message
-
+                    
     def process_with_llm(self, prompt):
         if not self.llm:
             return "LLM not initialized. Please initialize an LLM first."
@@ -128,6 +151,50 @@ class LLMProcessor:
             yield f"Average response time: {self.stats['average_response_time']:.2f} seconds"
         except Exception as e:
             yield f"Error processing prompt: {str(e)}"
+        
+        try:
+            response = self.llm.invoke(full_prompt)
+            # Try to parse the response as JSON and update the ongoing persona
+            try:
+                parsed_response = json.loads(response)
+                self.update_ongoing_persona(parsed_response)
+            except json.JSONDecodeError:
+                # If it's not valid JSON, try to extract information anyway
+                self.extract_info_from_text(response)
+            return response
+        except Exception as e:
+            return f"Error processing prompt: {str(e)}"
+
+    def update_ongoing_persona(self, new_data):
+        for category, items in new_data.items():
+            if category not in self.ongoing_persona:
+                self.ongoing_persona[category] = []
+            if isinstance(items, list):
+                self.ongoing_persona[category].extend([item for item in items if item not in self.ongoing_persona[category]])
+            else:
+                if items not in self.ongoing_persona[category]:
+                    self.ongoing_persona[category].append(items)
+
+    def extract_info_from_text(self, text):
+        # This is a simple extraction method. You might want to use a more sophisticated NLP approach.
+        categories = ["Education", "Experience", "Skills", "Strengths", "Goals", "Values"]
+        for category in categories:
+            if category in text:
+                start = text.index(category) + len(category)
+                end = text.find("\n", start)
+                if end == -1:
+                    end = len(text)
+                items = text[start:end].strip(": ").split(", ")
+                self.update_ongoing_persona({category: items})
+
+    def process_full_conversation(self, conversation):
+        full_prompt = f"{self.system_message}\n\nPlease analyze the following conversation and extract relevant information for a persona card:\n\n{conversation}\n\nProvide the extracted information in JSON format."
+        response = self.process_with_llm(full_prompt)
+        try:
+            parsed_response = json.loads(response)
+            self.ongoing_persona = parsed_response  # Replace the current persona with the new one
+        except json.JSONDecodeError:
+            st.error("Failed to parse the conversation into a persona. Please try again.")
 
     def test_connection(self):
         test_prompt = "Hello, can you hear me?"
@@ -209,7 +276,7 @@ with st.sidebar:
         if st.button("Initialize HPC LLM"):
             st.session_state.processor.initialize_hpc_llm(hpc_endpoint, hpc_token)
     else:  # Ollama
-        ollama_model = st.text_input("Enter Ollama model name", "llama2")
+        ollama_model = st.text_input("Enter Ollama model name", "llama3")
         if st.button("Initialize Ollama LLM"):
             st.session_state.processor.initialize_ollama(ollama_model)
     
@@ -224,13 +291,86 @@ with st.sidebar:
         st.session_state.processor.update_system_message(edited_system_message)
         st.success("System message updated!")
 
-    # Reranking
-    if st.button("Rerank Persona Data"):
-        st.session_state.processor.rerank(st.session_state.persona_data)
+    st.header("Ongoing Persona")
+    if st.session_state.processor.ongoing_persona:
+        st.json(st.session_state.processor.ongoing_persona)
+        if st.button("Export Persona"):
+            st.download_button(
+                label="Download Persona JSON",
+                data=json.dumps(st.session_state.processor.ongoing_persona, indent=2),
+                file_name="ongoing_persona.json",
+                mime="application/json"
+            )
+    else:
+        st.info("No persona data available yet. Start a conversation to generate data.")
 
-    # Persona viewer
-    st.header("Current Persona Data")
-    persona_data_placeholder = st.empty()
+    if st.button("Process Full Conversation"):
+        full_conversation = "\n".join([f"{msg.type}: {msg.content}" for msg in msgs.messages])
+        st.session_state.processor.process_full_conversation(full_conversation)
+        st.success("Full conversation processed and persona updated.")
+        st.experimental_rerun()
+
+    # Job Description Comparison
+    st.header("Job Description Comparison")
+    job_description = st.text_area("Enter Job Description", height=200)
+    if st.button("Compare with Job Description"):
+        if st.session_state.processor.ongoing_persona and job_description:
+            with st.spinner("Analyzing job description..."):
+                comparison_result = st.session_state.processor.compare_with_job_description(
+                    st.session_state.processor.ongoing_persona, job_description
+                )
+            st.subheader("Comparison Result")
+            if isinstance(comparison_result, dict) and "error" in comparison_result:
+                st.error(comparison_result["error"])
+            elif isinstance(comparison_result, dict):
+                st.metric("Match Percentage", f"{comparison_result.get('match_percentage', 0):.2f}%")
+                st.subheader("Strengths")
+                for strength in comparison_result.get('strengths', []):
+                    st.write(f"- {strength}")
+                st.subheader("Gaps")
+                for gap in comparison_result.get('gaps', []):
+                    st.write(f"- {gap}")
+                st.subheader("Recommendations")
+                for recommendation in comparison_result.get('recommendations', []):
+                    st.write(f"- {recommendation}")
+                
+                # Download button for comparison results
+                comparison_json = json.dumps(comparison_result, indent=2)
+                st.download_button(
+                    label="Download Comparison Results",
+                    data=comparison_json,
+                    file_name="job_comparison_results.json",
+                    mime="application/json"
+                )
+            else:
+                st.error("Unexpected comparison result format")
+        else:
+            st.warning("Please generate a persona and enter a job description first.")
+
+
+    # Reranking
+    st.header("Rerank Persona Data")
+    if st.button("Rerank Persona"):
+        if st.session_state.processor.ongoing_persona:
+            reranked_data = st.session_state.processor.rerank(st.session_state.processor.ongoing_persona)
+            st.json(reranked_data)
+            if st.button("Push Reranked Data to Main"):
+                st.session_state.processor.ongoing_persona = reranked_data
+                st.success("Reranked data pushed to main persona.")
+        else:
+            st.warning("No persona data available for reranking.")
+    
+    """
+    # After displaying the comparison results
+    if "error" not in comparison_result:
+        comparison_json = json.dumps(comparison_result, indent=2)
+        st.sidebar.download_button(
+            label="Download Comparison Results",
+            data=comparison_json,
+            file_name="job_comparison_results.json",
+            mime="application/json"
+        )"""
+
 
 # Main area for chat interface
 st.header("Chat Interface")
@@ -244,24 +384,13 @@ if prompt := st.chat_input("Ask about the persona or for more information"):
     st.chat_message("human").write(prompt)
 
     with st.chat_message("ai"):
-        message_placeholder = st.empty()
-        full_response = ""
-        for chunk in st.session_state.processor.process_with_llm(prompt):
-            full_response += chunk
-            message_placeholder.markdown(full_response + "▌")
-        message_placeholder.markdown(full_response)
+        response = st.session_state.processor.process_with_llm(prompt)
+        st.write(response)
 
     msgs.add_user_message(prompt)
-    msgs.add_ai_message(full_response)
-
-    # Try to parse the response as JSON and update persona data
-    try:
-        parsed_response = st.session_state.processor.parse_json_response(full_response)
-        if parsed_response:
-            st.session_state.processor.merge_json(st.session_state.persona_data, parsed_response)
-            persona_data_placeholder.json(st.session_state.persona_data)
-    except json.JSONDecodeError:
-        pass
+    msgs.add_ai_message(response)
+    
+    st.experimental_rerun()
 
 # Display stats
 st.sidebar.header("Stats")
