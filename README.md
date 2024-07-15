@@ -6,7 +6,7 @@ LLM Persona Cards Creator is a interactive tool leveraging any LLM (on HuggingFa
 
 ## Features
 
-- Dual LLM support: Local HuggingFace models and remote HPC server endpoints
+- Dual LLM support: Local HuggingFace models, Local Ollama models, and remote HPC server endpoints
 - Interactive chat interface for persona development
 - Real-time persona data visualization
 - Customizable system prompts to guide LLM behavior
