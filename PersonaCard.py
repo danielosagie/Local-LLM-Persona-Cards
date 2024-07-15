@@ -1,19 +1,13 @@
 import streamlit as st
 from langchain_community.chat_message_histories import StreamlitChatMessageHistory
 from langchain.memory import ConversationBufferMemory
-from langchain_community.llms import HuggingFaceEndpoint
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from sentence_transformers import SentenceTransformer, util
-import json
-import time
-import base64
-
-import time
-import json
-from langchain_community.llms import HuggingFaceEndpoint, HuggingFacePipeline
+from langchain_community.llms import HuggingFaceEndpoint, Ollama
+from langchain_community.llms import HuggingFacePipeline
 from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
+import torch
 from sentence_transformers import SentenceTransformer, util
-import streamlit as st
+import json
+import time
 
 class LLMProcessor:
     def __init__(self, progress_callback=None):
@@ -32,6 +26,12 @@ class LLMProcessor:
             "Values": ["Community involvement"]
         }
         '''
+        self.stats = {
+            "total_tokens": 0,
+            "total_responses": 0,
+            "average_response_time": 0,
+            "total_response_time": 0
+        }
 
     def initialize_local_llm(self, model_name):
         if self.progress_callback:
@@ -67,6 +67,7 @@ class LLMProcessor:
                 typical_p=0.95,
                 temperature=0.01,
                 repetition_penalty=1.1,
+                streaming=True
             )
             
             end_time = time.time()
@@ -75,6 +76,26 @@ class LLMProcessor:
         except Exception as e:
             if self.progress_callback:
                 self.progress_callback(1, f"Failed to initialize HPC LLM: {str(e)}")
+            raise
+
+    def initialize_ollama(self, model_name):
+        if self.progress_callback:
+            self.progress_callback(0, f"Initializing Ollama LLM: {model_name}")
+        
+        start_time = time.time()
+        try:
+            self.llm = Ollama(
+                model=model_name,
+                callback_manager=None,
+                temperature=0.01
+            )
+            
+            end_time = time.time()
+            if self.progress_callback:
+                self.progress_callback(1, f"Ollama LLM initialized in {end_time - start_time:.2f} seconds")
+        except Exception as e:
+            if self.progress_callback:
+                self.progress_callback(1, f"Failed to initialize Ollama LLM: {str(e)}")
             raise
 
     def update_system_message(self, new_message):
@@ -86,13 +107,31 @@ class LLMProcessor:
         
         full_prompt = f"{self.system_message}\n\nUser: {prompt}\n\nAI:"
         try:
-            return self.llm.invoke(full_prompt)
+            start_time = time.time()
+            response = ""
+            for chunk in self.llm.stream(full_prompt):
+                response += chunk
+                yield chunk
+            
+            end_time = time.time()
+            response_time = end_time - start_time
+            
+            # Update stats
+            self.stats["total_responses"] += 1
+            self.stats["total_response_time"] += response_time
+            self.stats["average_response_time"] = self.stats["total_response_time"] / self.stats["total_responses"]
+            self.stats["total_tokens"] += len(response.split())
+            
+            yield "\n\nStats:\n"
+            yield f"Response time: {response_time:.2f} seconds\n"
+            yield f"Total tokens: {self.stats['total_tokens']}\n"
+            yield f"Average response time: {self.stats['average_response_time']:.2f} seconds"
         except Exception as e:
-            return f"Error processing prompt: {str(e)}"
+            yield f"Error processing prompt: {str(e)}"
 
     def test_connection(self):
         test_prompt = "Hello, can you hear me?"
-        response = self.process_with_llm(test_prompt)
+        response = "".join(self.process_with_llm(test_prompt))
         return f"Test connection successful. Response: {response}"
 
     def merge_json(self, existing_data, new_data):
@@ -136,6 +175,7 @@ class LLMProcessor:
             ranked_data = rank_items_by_relevance(data, job_embedding)
             st.json(ranked_data)
 
+# Streamlit app
 st.set_page_config(page_title="LLM Persona Cards", page_icon="🦜")
 st.title("🦜 LLM Persona Cards")
 
@@ -157,17 +197,21 @@ if len(msgs.messages) == 0 or st.sidebar.button("Reset chat history"):
 with st.sidebar:
     st.header("LLM Configuration")
     
-    llm_option = st.radio("Select LLM", ["Local HuggingFace", "HPC Server"])
+    llm_option = st.radio("Select LLM", ["Local HuggingFace", "HPC Server", "Ollama"])
     
     if llm_option == "Local HuggingFace":
         local_model = st.text_input("Enter local model name", "gpt2")
         if st.button("Initialize Local LLM"):
             st.session_state.processor.initialize_local_llm(local_model)
-    else:
+    elif llm_option == "HPC Server":
         hpc_endpoint = st.text_input("Enter HPC endpoint URL", "http://ice183:8900")
         hpc_token = st.text_input("Enter HuggingFace API token", type="password")
         if st.button("Initialize HPC LLM"):
             st.session_state.processor.initialize_hpc_llm(hpc_endpoint, hpc_token)
+    else:  # Ollama
+        ollama_model = st.text_input("Enter Ollama model name", "llama2")
+        if st.button("Initialize Ollama LLM"):
+            st.session_state.processor.initialize_ollama(ollama_model)
     
     if st.button("Test Connection"):
         st.write(st.session_state.processor.test_connection())
@@ -186,16 +230,7 @@ with st.sidebar:
 
     # Persona viewer
     st.header("Current Persona Data")
-    if st.session_state.persona_data:
-        st.json(st.session_state.persona_data)
-        st.download_button(
-            label="Download Persona Data",
-            data=json.dumps(st.session_state.persona_data, indent=2),
-            file_name="persona_data.json",
-            mime="application/json"
-        )
-    else:
-        st.info("No persona data available yet. Start a conversation to generate data.")
+    persona_data_placeholder = st.empty()
 
 # Main area for chat interface
 st.header("Chat Interface")
@@ -209,16 +244,36 @@ if prompt := st.chat_input("Ask about the persona or for more information"):
     st.chat_message("human").write(prompt)
 
     with st.chat_message("ai"):
-        response = st.session_state.processor.process_with_llm(prompt)
-        st.write(response)
+        message_placeholder = st.empty()
+        full_response = ""
+        for chunk in st.session_state.processor.process_with_llm(prompt):
+            full_response += chunk
+            message_placeholder.markdown(full_response + "▌")
+        message_placeholder.markdown(full_response)
 
     msgs.add_user_message(prompt)
-    msgs.add_ai_message(response)
+    msgs.add_ai_message(full_response)
 
     # Try to parse the response as JSON and update persona data
     try:
-        parsed_response = st.session_state.processor.parse_json_response(response)
+        parsed_response = st.session_state.processor.parse_json_response(full_response)
         if parsed_response:
             st.session_state.processor.merge_json(st.session_state.persona_data, parsed_response)
+            persona_data_placeholder.json(st.session_state.persona_data)
     except json.JSONDecodeError:
         pass
+
+# Display stats
+st.sidebar.header("Stats")
+st.sidebar.write(f"Total responses: {st.session_state.processor.stats['total_responses']}")
+st.sidebar.write(f"Total tokens: {st.session_state.processor.stats['total_tokens']}")
+st.sidebar.write(f"Average response time: {st.session_state.processor.stats['average_response_time']:.2f} seconds")
+
+# Download button for persona data
+if st.session_state.persona_data:
+    st.sidebar.download_button(
+        label="Download Persona Data",
+        data=json.dumps(st.session_state.persona_data, indent=2),
+        file_name="persona_data.json",
+        mime="application/json"
+    )
