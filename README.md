@@ -41,20 +41,20 @@ LLM Persona Cards Creator is an interactive tool leveraging various LLMs (includ
 
 ## Usage
 
+### For the JSON Persona Viewer App:
+
+Start the Persona Json Viewer Streamlit app:
+    ```bash
+    streamlit run PersonaCard Json Viewer.py
+    ```
+Drop in any JSON file from our tests for a clean view with option for highlights
+    
 ### For the Persona Generator:
 
 Start the PersonaCard Streamlit app:
     ```bash
     streamlit run PersonaCard.py
     ```
-
-### For the Persona Viewer App:
-
-Start the Persona Json Viewer Streamlit app:
-    ```bash
-    streamlit run PersonaCard Json Viewer.py
-    ```
-
 Open your web browser and navigate to the URL provided by Streamlit (typically http://localhost:8501).
 
 In the sidebar, choose between "Local HuggingFace", "HPC Server", or "Ollama" LLM options.
