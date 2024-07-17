@@ -11,41 +11,6 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
 import torch
 from sentence_transformers import SentenceTransformer, util
 import time
-from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
-from langchain.schema import HumanMessage
-import queue
-
-# Add this near the top of your file, after the imports
-st.set_page_config(page_title="LLM Persona Cards", page_icon="🃏", layout="wide")
-
-# Custom CSS for styling
-st.markdown("""
-<style>
-    .main-container {
-        background-color: #2D2D2D;
-        padding: 20px;
-        border-radius: 10px;
-    }
-    .tag {
-        background-color: white;
-        color: black;
-        padding: 5px 10px;
-        border-radius: 15px;
-        margin: 5px;
-        display: inline-block;
-    }
-    .section-header {
-        color: #CCCCCC;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-class StreamHandler(StreamingStdOutCallbackHandler):
-    def __init__(self, queue):
-        self.queue = queue
-
-    def on_llm_new_token(self, token: str, **kwargs) -> None:
-        self.queue.put(token)
 
 class LLMProcessor:
     def __init__(self, progress_callback=None):
@@ -53,9 +18,9 @@ class LLMProcessor:
         self.llm = None
         self.ongoing_persona = {}
         self.system_message = '''
-        You are an AI assistant helping to create a persona card. Respond to the user's survey input and chat input by providing and/or matching relevant information in JSON format. Understand the military spouse experience and be creative to help the spouse understand their history/potential. Include categories such as Education, Experience, Skills, Strengths, Goals, and Values. Keep your responses concise and relevant.
+        You are an AI assistant helping to create a persona card. Respond to the user's input by providing and/or matching relevant information in JSON format. Include categories such as Education, Experience, Skills, Strengths, Goals, and Values. Keep your responses concise and relevant.
 
-        Example sample response format:
+        Example response format:
         {
             "Education": ["High School"],
             "Experience": ["1 year retail"],
@@ -71,8 +36,6 @@ class LLMProcessor:
             "average_response_time": 0,
             "total_response_time": 0
         }
-        self.stream_handler = None
-        self.response_queue = queue.Queue()
 
     def initialize_local_llm(self, model_name):
         if self.progress_callback:
@@ -118,7 +81,7 @@ class LLMProcessor:
             if self.progress_callback:
                 self.progress_callback(1, f"Failed to initialize HPC LLM: {str(e)}")
             raise
-        
+
     def initialize_ollama(self, model_name):
         if self.progress_callback:
             self.progress_callback(0, f"Initializing Ollama LLM: {model_name}")
@@ -144,32 +107,21 @@ class LLMProcessor:
 
     def process_with_llm(self, prompt):
         if not self.llm:
-            yield "LLM not initialized. Please initialize an LLM first."
-            return
-
+            return "LLM not initialized. Please initialize an LLM first."
+        
         full_prompt = f"{self.system_message}\n\nUser: {prompt}\n\nAI:"
         try:
             start_time = time.time()
-        
-            # Check if the LLM supports streaming
-            if hasattr(self.llm, 'stream') and callable(self.llm.stream):
-                for chunk in self.llm.stream(full_prompt):
-                    yield chunk
-                    self.stats["total_tokens"] += len(chunk.split())
-            else:
-                # Fallback for non-streaming LLMs
-                response = self.llm.invoke(full_prompt)
-                yield response
-                self.stats["total_tokens"] += len(response.split())
-
+            response = self.llm.invoke(full_prompt)
             end_time = time.time()
             response_time = end_time - start_time
-        
+            
             # Update stats
             self.stats["total_responses"] += 1
             self.stats["total_response_time"] += response_time
             self.stats["average_response_time"] = self.stats["total_response_time"] / self.stats["total_responses"]
-        
+            self.stats["total_tokens"] += len(response.split())
+            
             # Try to parse the response as JSON and update the ongoing persona
             try:
                 parsed_response = json.loads(response)
@@ -177,19 +129,11 @@ class LLMProcessor:
             except json.JSONDecodeError:
                 # If it's not valid JSON, try to extract information anyway
                 self.extract_info_from_text(response)
-        
+            
+            return response
         except Exception as e:
-            yield f"Error processing prompt: {str(e)}"
-    
-    def load_persona(self, filename):
-        try:
-            with open(os.path.join("generated_personas", filename), 'r') as f:
-                self.ongoing_persona = json.load(f)
-            return self.ongoing_persona
-        except Exception as e:
-            print(f"Error loading persona: {e}")
-            return None
-        
+            return f"Error processing prompt: {str(e)}"
+
     def update_ongoing_persona(self, new_data):
         for category, items in new_data.items():
             if category not in self.ongoing_persona:
@@ -211,7 +155,6 @@ class LLMProcessor:
                 items = text[start:end].strip(": ").split(", ")
                 self.update_ongoing_persona({category: items})
 
-    
     def compare_with_job_description(self, persona_data, job_description):
         prompt = f"""
         Given the following persona data:
@@ -262,7 +205,8 @@ class LLMProcessor:
         return f"Test connection successful. Response: {response}"
 
 # Streamlit app
-st.title("🃏 LLM Persona Cards")
+st.set_page_config(page_title="LLM Persona Cards", page_icon="🦜", layout="wide")
+st.title("🦜 LLM Persona Cards")
 
 # Initialize session state
 if 'processor' not in st.session_state:
@@ -280,36 +224,60 @@ survey_tab, persona_gen_tab, persona_viewer_tab = st.tabs(["Survey", "Persona Ge
 with survey_tab:
     st.header("Military Spouse Experience Survey")
     
-    # Add upload/download functionality at the top
-    col1, col2 = st.columns(2)
-    with col1:
-        uploaded_file = st.file_uploader("Upload a survey response file", type="json")
-        if uploaded_file is not None:
-            survey_data = json.load(uploaded_file)
-            st.session_state['survey_data'] = survey_data
-            st.success("File uploaded successfully!")
-    
-    with col2:
-        if 'survey_completed' in st.session_state and st.session_state['survey_completed']:
-            if st.download_button("Download Survey Responses", 
-                                  data=json.dumps(st.session_state['survey_data'], indent=2),
-                                  file_name="survey_responses.json",
-                                  mime="application/json"):
-                st.success("Survey responses downloaded!")
-    
+    def save_survey(survey, filename):
+        data = survey.to_json()
+        with open(filename, 'w') as f:
+            json.dump(data, f)
+        st.sidebar.success(f"Survey responses saved to {filename}")
+
+    def load_survey(survey, filename):
+        try:
+            with open(filename, 'r') as f:
+                data = json.load(f)
+            survey.from_json(data)
+            st.sidebar.success(f"Survey responses loaded from {filename}")
+        except FileNotFoundError:
+            st.sidebar.error(f"File {filename} not found.")
+
+    def list_json_files(directory):
+        return [f for f in os.listdir(directory) if f.endswith('.json')]
+
+    # Sidebar for file operations
+    st.sidebar.header("Survey Data Operations")
+
+    uploaded_file = st.sidebar.file_uploader("Upload a survey response file", type="json")
+    if uploaded_file is not None:
+        survey_data = json.load(uploaded_file)
+        st.session_state['survey_data'] = survey_data
+        st.sidebar.success("File uploaded successfully!")
+
+    if st.sidebar.button("Save Current Responses"):
+        if 'survey' in st.session_state:
+            filename = f"survey_response_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            save_survey(st.session_state['survey'], filename)
+
+    cache_folder = "cached_responses"
+    if os.path.exists(cache_folder):
+        cached_files = list_json_files(cache_folder)
+        if cached_files:
+            selected_file = st.sidebar.selectbox("Select a cached response", cached_files)
+            if st.sidebar.button("Load Selected Response"):
+                load_survey(st.session_state.get('survey', ss.StreamlitSurvey("temp")), os.path.join(cache_folder, selected_file))
+        else:
+            st.sidebar.info("No cached responses found.")
+    else:
+        st.sidebar.info(f"Cache folder '{cache_folder}' not found.")
+
     # Initialize or get the survey from session state
     if 'survey' not in st.session_state:
         st.session_state['survey'] = ss.StreamlitSurvey("Military Spouse Experience Survey")
     survey = st.session_state['survey']
 
     # Create paged survey
-    pages = survey.pages(5, on_submit=lambda: st.success("Your responses have been recorded. Thank you!"))
+    pages = survey.pages(4, on_submit=lambda: st.success("Your responses have been recorded. Thank you!"))
 
     with pages:
         if pages.current == 0:
-            st.subheader("Personal Information")
-            survey.text_input("What is your name?")
-            
             st.subheader("Education")
             education = survey.radio(
                 "What is your highest level of education?",
@@ -435,270 +403,152 @@ with survey_tab:
                 "What kind of support or resources do you wish were more readily available to military spouses?"
             )
 
-    # Add completion button at the end
-    if st.button("Complete Survey"):
-        st.session_state['survey_completed'] = True
-        st.session_state['survey_data'] = survey.to_json()
-        
-        # Save to cached_responses folder
-        os.makedirs("cached_responses", exist_ok=True)
-        filename = f"cached_responses/survey_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-        with open(filename, 'w') as f:
-            json.dump(st.session_state['survey_data'], f)
-        
-        st.success(f"Survey completed! Responses saved to {filename}")
-        st.info("You can now proceed to the Persona Generator.")
+    # Display the current state of the survey
+    st.sidebar.subheader("Current Survey State")
+    st.sidebar.json(survey.to_json())
 
 # Persona Generator Tab
 with persona_gen_tab:
-    st.header("Persona Generator")
-
-    # Chat Interface
-    st.subheader("Chat Interface")
-    
-    # Initialize StreamlitChatMessageHistory
-    msgs = StreamlitChatMessageHistory(key="chat_messages")
-    memory = ConversationBufferMemory(chat_memory=msgs, return_messages=True, memory_key="chat_history", output_key="output")
-
-    if len(msgs.messages) == 0 or st.button("Reset chat history", key="reset_chat_persona_gen"):
-        msgs.clear()
-        msgs.add_ai_message("How can I help you create or modify the persona?")
-
-    # Display chat messages
-    for msg in msgs.messages:
-        st.chat_message(msg.type).write(msg.content)
-
-    # Chat input
-    if prompt := st.chat_input("Ask about the persona or for more information"):
-        st.chat_message("human").write(prompt)
-
-        with st.chat_message("ai"):
-            response_placeholder = st.empty()
-            full_response = ""
-            for chunk in st.session_state.processor.process_with_llm(prompt):
-                full_response += chunk
-                response_placeholder.markdown(full_response + "▌")
-            response_placeholder.markdown(full_response)
-
-        msgs.add_user_message(prompt)
-        msgs.add_ai_message(full_response)
-
-        # Update ongoing persona
-        try:
-            new_data = json.loads(full_response)
-            st.session_state.processor.update_ongoing_persona(new_data)
-        except json.JSONDecodeError:
-            st.session_state.processor.extract_info_from_text(full_response)
-
-    # Control Panel
-    st.subheader("Control Panel")
-    
-    with st.expander("Rerank Persona"):
-        desired_job = st.text_input("Enter desired job for reranking:")
-        if st.button("Rerank"):
-            reranked_persona = st.session_state.processor.rerank(st.session_state.processor.ongoing_persona)
-            st.json(reranked_persona)
-            
-            # Save reranked persona
-            name = st.session_state.processor.ongoing_persona.get("Name", ["Unknown"])[0]
-            rerank_filename = f"reranked_personas/{name}_reranked_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-            os.makedirs("reranked_personas", exist_ok=True)
-            with open(rerank_filename, 'w') as f:
-                json.dump(reranked_persona, f, indent=2)
-            
-            st.success(f"Reranked persona saved as {rerank_filename}")
-
-    with st.expander("Compare with Job Description"):
-        job_description = st.text_area("Enter Job Description", height=200, key="job_description_persona_gen")
-        if st.button("Compare"):
-            comparison_result = st.session_state.processor.compare_with_job_description(
-                st.session_state.processor.ongoing_persona, job_description
-            )
-            st.json(comparison_result)
-        
-            # Save comparison result
-            name = st.session_state.processor.ongoing_persona.get("Name", ["Unknown"])[0]
-            comparison_filename = f"job_comparisons/{name}_comparison_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-            os.makedirs("job_comparisons", exist_ok=True)
-            with open(comparison_filename, 'w') as f:
-                json.dump(comparison_result, f, indent=2)
-        
-            st.success(f"Comparison result saved as {comparison_filename}")
-
-    # Save and Download buttons
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("Save Ongoing Persona"):
-            name = st.session_state.processor.ongoing_persona.get("Name", ["Unknown"])[0]
-            version = 1
-            while True:
-                persona_filename = f"generated_personas/{name}_v{version}_{datetime.now().strftime('%Y%m%d')}.json"
-                if not os.path.exists(persona_filename):
-                    break
-                version += 1
-
-            os.makedirs("generated_personas", exist_ok=True)
-            with open(persona_filename, 'w') as f:
-                json.dump(st.session_state.processor.ongoing_persona, f, indent=2)
-            
-            st.success(f"Ongoing persona saved as {persona_filename}")
-
-    with col2:
-        if st.download_button("Download Current Persona", 
-                               data=json.dumps(st.session_state.processor.ongoing_persona, indent=2),
-                               file_name="current_persona.json",
-                               mime="application/json"):
-            st.success("Current persona downloaded!")
-
-    # Display ongoing persona
-    st.subheader("Current Ongoing Persona")
-    st.json(st.session_state.processor.ongoing_persona)
-
-
-    st.header("Chat Interface")
-    
-    # Initialize StreamlitChatMessageHistory
-    msgs = StreamlitChatMessageHistory(key="chat_messages")
-    memory = ConversationBufferMemory(chat_memory=msgs, return_messages=True, memory_key="chat_history", output_key="output")
-
-    if len(msgs.messages) == 0 or st.button("Reset chat history"):
-        msgs.clear()
-        msgs.add_ai_message("How can I help you create or modify the persona?")
-
-    # Display chat messages
-    for msg in msgs.messages:
-        st.chat_message(msg.type).write(msg.content)
-
-    # Chat input with unique key
-    if prompt := st.chat_input("Ask about the persona or for more information", key="chat_input_persona_gen"):
-        st.chat_message("human").write(prompt)
-
-        with st.chat_message("ai"):
-            response_placeholder = st.empty()
-            full_response = ""
-            for chunk in st.session_state.processor.process_with_llm(prompt):
-                full_response += chunk
-                response_placeholder.markdown(full_response + "▌")
-            response_placeholder.markdown(full_response)
-
-        msgs.add_user_message(prompt)
-        msgs.add_ai_message(full_response)
-
-        # Update ongoing persona
-        try:
-            new_data = json.loads(full_response)
-            st.session_state.processor.update_ongoing_persona(new_data)
-        except json.JSONDecodeError:
-            st.session_state.processor.extract_info_from_text(full_response)
-
-    # LLM Configuration
-    st.sidebar.header("LLM Configuration")
-    
-    llm_option = st.sidebar.radio("Select LLM", ["Local HuggingFace", "HPC Server", "Ollama"])
-    
-    if llm_option == "Local HuggingFace":
-        local_model = st.sidebar.text_input("Enter local model name", "gpt2")
-        if st.sidebar.button("Initialize Local LLM"):
-            st.session_state.processor.initialize_local_llm(local_model)
-    elif llm_option == "HPC Server":
-        hpc_endpoint = st.sidebar.text_input("Enter HPC endpoint URL", "http://ice183:8900")
-        hpc_token = st.sidebar.text_input("Enter HuggingFace API token", type="password")
-        if st.sidebar.button("Initialize HPC LLM"):
-            st.session_state.processor.initialize_hpc_llm(hpc_endpoint, hpc_token)
-    else:  # Ollama
-        ollama_model = st.sidebar.text_input("Enter Ollama model name", "llama3")
-        if st.sidebar.button("Initialize Ollama LLM"):
-            st.session_state.processor.initialize_ollama(ollama_model)
-    
-    if st.sidebar.button("Test Connection"):
-        st.sidebar.write(st.session_state.processor.test_connection())
-    
-    st.sidebar.header("System Message")
-    edited_system_message = st.sidebar.text_area("Edit System Message:", 
-                                         value=st.session_state.processor.system_message,
-                                         height=300)
-    if st.sidebar.button("Update System Message"):
-        st.session_state.processor.update_system_message(edited_system_message)
-        st.sidebar.success("System message updated!")
-
-with persona_viewer_tab:
-    st.header("Spouse-Facing Persona Viewer")
-    
     col1, col2 = st.columns([3, 1])
     
     with col1:
-        # Load persona data
-        persona_files = [f for f in os.listdir("generated_personas") if f.endswith('.json')]
-        persona_files.sort(key=lambda x: os.path.getmtime(os.path.join("generated_personas", x)), reverse=True)
+        st.header("Chat Interface")
         
-        auto_select_latest = st.checkbox("Automatically select most recent persona", value=True)
-        
-        if auto_select_latest and persona_files:
-            selected_persona = persona_files[0]
-        else:
-            selected_persona = st.selectbox("Select a persona to view", ["None"] + persona_files)
+        # Initialize StreamlitChatMessageHistory
+        msgs = StreamlitChatMessageHistory(key="chat_messages")
+        memory = ConversationBufferMemory(chat_memory=msgs, return_messages=True, memory_key="chat_history", output_key="output")
+
+        if len(msgs.messages) == 0 or st.button("Reset chat history"):
+            msgs.clear()
+            msgs.add_ai_message("How can I help you create a persona?")
+
+        # Load survey data if available
+        if st.session_state.survey_data:
+            st.success("Survey data loaded! Incorporating into persona generation.")
+            initial_prompt = f"Create a persona based on this survey data: {json.dumps(st.session_state.survey_data)}"
+            msgs.add_user_message(initial_prompt)
+            with st.chat_message("ai"):
+                response = st.session_state.processor.process_with_llm(initial_prompt)
+                st.write(response)
+            msgs.add_ai_message(response)
+
+        # Display chat messages
+        for msg in msgs.messages:
+            st.chat_message(msg.type).write(msg.content)
+
+        # Chat input
+        if prompt := st.chat_input("Ask about the persona or for more information"):
+            st.chat_message("human").write(prompt)
+
+            with st.chat_message("ai"):
+                response = st.session_state.processor.process_with_llm(prompt)
+                st.write(response)
+
+            msgs.add_user_message(prompt)
+            msgs.add_ai_message(response)
 
     with col2:
-        if st.button("Apply Selected Persona"):
-            if selected_persona and selected_persona != "None":
-                persona = st.session_state.processor.load_persona(selected_persona)
-                if persona:
-                    st.session_state['persona_viewer_data'] = persona
-                    st.success(f"Applied persona: {selected_persona}")
-                else:
-                    st.error("Failed to load the selected persona.")
-            else:
-                st.warning("No persona selected.")
-
-    if 'persona_viewer_data' in st.session_state and st.session_state['persona_viewer_data']:
-        persona = st.session_state['persona_viewer_data']
+        st.header("LLM Configuration")
         
-        st.markdown('<div class="main-container">', unsafe_allow_html=True)
+        llm_option = st.radio("Select LLM", ["Local HuggingFace", "HPC Server", "Ollama"])
+        
+        if llm_option == "Local HuggingFace":
+            local_model = st.text_input("Enter local model name", "gpt2")
+            if st.button("Initialize Local LLM"):
+                st.session_state.processor.initialize_local_llm(local_model)
+        elif llm_option == "HPC Server":
+            hpc_endpoint = st.text_input("Enter HPC endpoint URL", "http://ice183:8900")
+            hpc_token = st.text_input("Enter HuggingFace API token", type="password")
+            if st.button("Initialize HPC LLM"):
+                st.session_state.processor.initialize_hpc_llm(hpc_endpoint, hpc_token)
+        else:  # Ollama
+            ollama_model = st.text_input("Enter Ollama model name", "llama3")
+            if st.button("Initialize Ollama LLM"):
+                st.session_state.processor.initialize_ollama(ollama_model)
+        
+        if st.button("Test Connection"):
+            st.write(st.session_state.processor.test_connection())
+        
+        st.header("System Message")
+        edited_system_message = st.text_area("Edit System Message:", 
+                                             value=st.session_state.processor.system_message,
+                                             height=300)
+        if st.button("Update System Message"):
+            st.session_state.processor.update_system_message(edited_system_message)
+            st.success("System message updated!")
+
+# Persona Viewer Tab
+with persona_viewer_tab:
+    st.header("Spouse-Facing Persona Viewer")
+    
+    if st.session_state.processor.ongoing_persona:
+        persona = st.session_state.processor.ongoing_persona
         
         col1, col2 = st.columns([1, 2])
         
         with col1:
-            # You can add an image here if you have one for the persona
-            st.image("GTRI Logo.png", use_column_width=True)
-        
-        with col2:
-            st.header(persona.get("Name", ["Unknown"])[0] if isinstance(persona.get("Name"), list) else persona.get("Name", "Unknown"))
+            st.subheader(persona.get("Name", ["Unknown"])[0] if isinstance(persona.get("Name"), list) else persona.get("Name", "Unknown"))
             st.markdown(persona.get("Description", ["No description available."])[0] if isinstance(persona.get("Description"), list) else persona.get("Description", "No description available."))
         
-        def display_tags(items, title, initial_display=None):
-            st.markdown(f'<h3 class="section-header">{title}</h3>', unsafe_allow_html=True)
-            tag_html = "".join([f'<span class="tag">{item}</span>' for item in items[:initial_display]])
-            st.markdown(tag_html, unsafe_allow_html=True)
+        with col2:
+            col2_1, col2_2 = st.columns(2)
             
-            if initial_display and len(items) > initial_display:
-                with st.expander("Show more"):
-                    more_tags = "".join([f'<span class="tag">{item}</span>' for item in items[initial_display:]])
-                    st.markdown(more_tags, unsafe_allow_html=True)
-
-        display_tags(persona.get("Education", []), "Education")
-        display_tags(persona.get("Experience", []) + persona.get("Qualifications", []), "Experience & Qualifications")
-        display_tags(persona.get("Skills", []), "Skills")
-        display_tags(persona.get("Goals", []), "Goals", 6)
-        display_tags(persona.get("Values", []), "Values", 6)
-        display_tags(persona.get("Strengths", []), "Strengths")
-
+            with col2_1:
+                st.subheader("Education")
+                for edu in persona.get("Education", []):
+                    st.button(edu)
+                
+                st.subheader("Experience")
+                for exp in persona.get("Experience", []):
+                    st.button(exp)
+                
+                st.subheader("Skills")
+                for skill in persona.get("Skills", []):
+                    st.button(skill)
+            
+            with col2_2:
+                st.subheader("Goals")
+                for goal in persona.get("Goals", []):
+                    st.button(goal)
+                
+                st.subheader("Values")
+                for value in persona.get("Values", []):
+                    st.button(value)
+                
+                st.subheader("Strengths")
+                for strength in persona.get("Strengths", []):
+                    st.button(strength)
+        
         if "Relevant Jobs" in persona:
-            st.markdown('<h3 class="section-header">Relevant Jobs</h3>', unsafe_allow_html=True)
+            st.subheader("Relevant Jobs")
             job_cols = st.columns(3)
             for i, job in enumerate(persona["Relevant Jobs"].items()):
                 with job_cols[i % 3]:
                     st.metric(job[0], job[1])
         
         if "Recommendations" in persona:
-            display_tags(persona["Recommendations"], "Recommendations")
-
-        st.markdown('</div>', unsafe_allow_html=True)
+            st.subheader("Recommendations")
+            for rec in persona["Recommendations"]:
+                st.button(rec)
     else:
-        st.info("No persona data available. Select a persona and click 'Apply Selected Persona' to view it.")
-
+        st.info("No persona data available. Generate a persona in the Persona Generator tab first.")
 
 # Sidebar
 with st.sidebar:
+    st.header("Persona Data")
+    if st.session_state.processor.ongoing_persona:
+        st.json(st.session_state.processor.ongoing_persona)
+        if st.button("Export Persona"):
+            st.download_button(
+                label="Download Persona JSON",
+                data=json.dumps(st.session_state.processor.ongoing_persona, indent=2),
+                file_name="persona_data.json",
+                mime="application/json"
+            )
+    else:
+        st.info("No persona data available yet.")
+
+    # Job Description Comparison
     st.header("Job Description Comparison")
     job_description = st.text_area("Enter Job Description", height=200)
     if st.button("Compare with Job Description"):
