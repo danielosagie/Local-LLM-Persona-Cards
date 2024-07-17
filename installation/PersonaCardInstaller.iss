@@ -1,8 +1,9 @@
 #define MyAppName "PersonaCard"
 #define MyAppVersion "1.0"
-#define MyAppPublisher "Your Name or Organization"
+#define MyAppPublisher "GTRI"
 #define MyAppURL "https://github.com/danielosagie/Local-LLM-Persona-Cards"
-#define MyAppExeName "PersonaCard.bat"
+#define MyAppExeName "PersonaCardLauncher.vbs"
+#define MyAppIcon "PersonaCard.ico"
 
 [Setup]
 AppId={{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}
@@ -20,6 +21,7 @@ OutputBaseFilename=PersonaCardInstaller
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile={#MyAppIcon}
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -29,13 +31,15 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 Source: "PersonaCard.py"; DestDir: "{app}"; Flags: ignoreversion
+Source: "PersonaCardLauncher.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "install_dependencies.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion isreadme
+Source: "{#MyAppIcon}"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppIcon}"; WorkingDir: "{app}"
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppIcon}"; Tasks: desktopicon; WorkingDir: "{app}"
 
 [Run]
 Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\install_dependencies.ps1"""; Description: "Install dependencies"; Flags: runhidden

@@ -107,45 +107,61 @@ class LLMProcessor:
 
     def process_with_llm(self, prompt):
         if not self.llm:
-            return "LLM not initialized. Please initialize an LLM first."
-        
+            yield "LLM not initialized. Please initialize an LLM first."
+            return
+
         full_prompt = f"{self.system_message}\n\nUser: {prompt}\n\nAI:"
         try:
             start_time = time.time()
-            response = self.llm.invoke(full_prompt)
+        
+            full_response = ""
+            # Check if the LLM supports streaming
+            if hasattr(self.llm, 'stream') and callable(self.llm.stream):
+                for chunk in self.llm.stream(full_prompt):
+                    full_response += chunk
+                    yield chunk
+                    self.stats["total_tokens"] += len(chunk.split())
+            else:
+                # Fallback for non-streaming LLMs
+                full_response = self.llm.invoke(full_prompt)
+                yield full_response
+                self.stats["total_tokens"] += len(full_response.split())
+
             end_time = time.time()
             response_time = end_time - start_time
-            
+        
             # Update stats
             self.stats["total_responses"] += 1
             self.stats["total_response_time"] += response_time
             self.stats["average_response_time"] = self.stats["total_response_time"] / self.stats["total_responses"]
-            self.stats["total_tokens"] += len(response.split())
-            
+        
             # Try to parse the response as JSON and update the ongoing persona
             try:
-                parsed_response = json.loads(response)
+                parsed_response = json.loads(full_response)
                 self.update_ongoing_persona(parsed_response)
             except json.JSONDecodeError:
                 # If it's not valid JSON, try to extract information anyway
-                self.extract_info_from_text(response)
-            
-            return response
+                self.extract_info_from_text(full_response)
+        
         except Exception as e:
-            return f"Error processing prompt: {str(e)}"
+            yield f"Error processing prompt: {str(e)}"
 
     def update_ongoing_persona(self, new_data):
-        for category, items in new_data.items():
-            if category not in self.ongoing_persona:
-                self.ongoing_persona[category] = []
-            if isinstance(items, list):
-                self.ongoing_persona[category].extend([item for item in items if item not in self.ongoing_persona[category]])
-            else:
-                if items not in self.ongoing_persona[category]:
-                    self.ongoing_persona[category].append(items)
+        if isinstance(new_data, dict):
+            for category, items in new_data.items():
+                if category not in self.ongoing_persona:
+                    self.ongoing_persona[category] = []
+                if isinstance(items, list):
+                    self.ongoing_persona[category] = list(set(self.ongoing_persona[category] + items))
+                elif isinstance(items, str):
+                    if items not in self.ongoing_persona[category]:
+                        self.ongoing_persona[category].append(items)
+        else:
+            st.warning(f"Received non-dict data to update persona: {type(new_data)}")
 
     def extract_info_from_text(self, text):
-        categories = ["Education", "Experience", "Skills", "Strengths", "Goals", "Values"]
+        categories = ["Name", "Education", "Experience", "Skills", "Strengths", "Goals", "Values"]
+        extracted_data = {}
         for category in categories:
             if category in text:
                 start = text.index(category) + len(category)
@@ -153,7 +169,8 @@ class LLMProcessor:
                 if end == -1:
                     end = len(text)
                 items = text[start:end].strip(": ").split(", ")
-                self.update_ongoing_persona({category: items})
+                extracted_data[category] = items
+        self.update_ongoing_persona(extracted_data)
 
     def compare_with_job_description(self, persona_data, job_description):
         prompt = f"""

@@ -1,6 +1,14 @@
+import sys
+
+if sys.version_info < (3, 9):
+    print("This application requires Python 3.9 or higher.")
+    sys.exit(1)
+
+
 import streamlit as st
 import streamlit_survey as ss
 import json
+import pandas as pd
 import os
 from datetime import datetime
 from langchain_community.chat_message_histories import StreamlitChatMessageHistory
@@ -14,6 +22,7 @@ import time
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from langchain.schema import HumanMessage
 import queue
+import sys
 
 # Add this near the top of your file, after the imports
 st.set_page_config(page_title="LLM Persona Cards", page_icon="🃏", layout="wide")
@@ -142,6 +151,35 @@ class LLMProcessor:
     def update_system_message(self, new_message):
         self.system_message = new_message
 
+    
+    def load_persona(self, filename):
+        try:
+            full_path = os.path.join("generated_personas", filename)
+            if not os.path.exists(full_path):
+                raise FileNotFoundError(f"File not found: {full_path}")
+            with open(full_path, 'r') as f:
+                loaded_persona = json.load(f)
+            self.ongoing_persona = loaded_persona
+            return loaded_persona
+        except json.JSONDecodeError as e:
+            st.error(f"Error parsing JSON in {filename}: {str(e)}")
+        except Exception as e:
+            st.error(f"Error loading persona {filename}: {str(e)}")
+        return None
+        
+    def update_ongoing_persona(self, new_data):
+        if isinstance(new_data, dict):
+            for category, items in new_data.items():
+                if category not in self.ongoing_persona:
+                    self.ongoing_persona[category] = []
+                if isinstance(items, list):
+                    self.ongoing_persona[category] = list(set(self.ongoing_persona[category] + items))
+                elif isinstance(items, str):
+                    if items not in self.ongoing_persona[category]:
+                        self.ongoing_persona[category].append(items)
+        else:
+            st.warning(f"Received non-dict data to update persona: {type(new_data)}")
+
     def process_with_llm(self, prompt):
         if not self.llm:
             yield "LLM not initialized. Please initialize an LLM first."
@@ -151,16 +189,18 @@ class LLMProcessor:
         try:
             start_time = time.time()
         
+            full_response = ""
             # Check if the LLM supports streaming
             if hasattr(self.llm, 'stream') and callable(self.llm.stream):
                 for chunk in self.llm.stream(full_prompt):
+                    full_response += chunk
                     yield chunk
                     self.stats["total_tokens"] += len(chunk.split())
             else:
                 # Fallback for non-streaming LLMs
-                response = self.llm.invoke(full_prompt)
-                yield response
-                self.stats["total_tokens"] += len(response.split())
+                full_response = self.llm.invoke(full_prompt)
+                yield full_response
+                self.stats["total_tokens"] += len(full_response.split())
 
             end_time = time.time()
             response_time = end_time - start_time
@@ -172,36 +212,18 @@ class LLMProcessor:
         
             # Try to parse the response as JSON and update the ongoing persona
             try:
-                parsed_response = json.loads(response)
+                parsed_response = json.loads(full_response)
                 self.update_ongoing_persona(parsed_response)
             except json.JSONDecodeError:
                 # If it's not valid JSON, try to extract information anyway
-                self.extract_info_from_text(response)
+                self.extract_info_from_text(full_response)
         
         except Exception as e:
             yield f"Error processing prompt: {str(e)}"
-    
-    def load_persona(self, filename):
-        try:
-            with open(os.path.join("generated_personas", filename), 'r') as f:
-                self.ongoing_persona = json.load(f)
-            return self.ongoing_persona
-        except Exception as e:
-            print(f"Error loading persona: {e}")
-            return None
-        
-    def update_ongoing_persona(self, new_data):
-        for category, items in new_data.items():
-            if category not in self.ongoing_persona:
-                self.ongoing_persona[category] = []
-            if isinstance(items, list):
-                self.ongoing_persona[category].extend([item for item in items if item not in self.ongoing_persona[category]])
-            else:
-                if items not in self.ongoing_persona[category]:
-                    self.ongoing_persona[category].append(items)
 
     def extract_info_from_text(self, text):
-        categories = ["Education", "Experience", "Skills", "Strengths", "Goals", "Values"]
+        categories = ["Name", "Education", "Experience", "Skills", "Strengths", "Goals", "Values"]
+        extracted_data = {}
         for category in categories:
             if category in text:
                 start = text.index(category) + len(category)
@@ -209,8 +231,8 @@ class LLMProcessor:
                 if end == -1:
                     end = len(text)
                 items = text[start:end].strip(": ").split(", ")
-                self.update_ongoing_persona({category: items})
-
+                extracted_data[category] = items
+        self.update_ongoing_persona(extracted_data)
     
     def compare_with_job_description(self, persona_data, job_description):
         prompt = f"""
@@ -256,6 +278,16 @@ class LLMProcessor:
             ranked_data = rank_items_by_relevance(data, job_embedding)
             return ranked_data
 
+    def validate_json_files():
+        persona_dir = "generated_personas"
+        for filename in os.listdir(persona_dir):
+            if filename.endswith('.json'):
+                try:
+                    with open(os.path.join(persona_dir, filename), 'r') as f:
+                        json.load(f)
+                except json.JSONDecodeError as e:
+                    st.error(f"Invalid JSON in file {filename}: {e}")
+
     def test_connection(self):
         test_prompt = "Hello, can you hear me?"
         response = self.process_with_llm(test_prompt)
@@ -280,22 +312,11 @@ survey_tab, persona_gen_tab, persona_viewer_tab = st.tabs(["Survey", "Persona Ge
 with survey_tab:
     st.header("Military Spouse Experience Survey")
     
-    # Add upload/download functionality at the top
-    col1, col2 = st.columns(2)
-    with col1:
-        uploaded_file = st.file_uploader("Upload a survey response file", type="json")
-        if uploaded_file is not None:
-            survey_data = json.load(uploaded_file)
-            st.session_state['survey_data'] = survey_data
-            st.success("File uploaded successfully!")
-    
-    with col2:
-        if 'survey_completed' in st.session_state and st.session_state['survey_completed']:
-            if st.download_button("Download Survey Responses", 
-                                  data=json.dumps(st.session_state['survey_data'], indent=2),
-                                  file_name="survey_responses.json",
-                                  mime="application/json"):
-                st.success("Survey responses downloaded!")
+    uploaded_file = st.file_uploader("Upload a survey response file", type="json")
+    if uploaded_file is not None:
+        survey_data = json.load(uploaded_file)
+        st.session_state['survey_data'] = survey_data
+        st.success("File uploaded successfully!")
     
     # Initialize or get the survey from session state
     if 'survey' not in st.session_state:
@@ -435,19 +456,30 @@ with survey_tab:
                 "What kind of support or resources do you wish were more readily available to military spouses?"
             )
 
-    # Add completion button at the end
-    if st.button("Complete Survey"):
-        st.session_state['survey_completed'] = True
-        st.session_state['survey_data'] = survey.to_json()
         
-        # Save to cached_responses folder
-        os.makedirs("cached_responses", exist_ok=True)
-        filename = f"cached_responses/survey_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-        with open(filename, 'w') as f:
-            json.dump(st.session_state['survey_data'], f)
+    # Add upload/download functionality at the top
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("Complete Survey"):
+            st.session_state['survey_completed'] = True
+            st.session_state['survey_data'] = survey.to_json()
         
-        st.success(f"Survey completed! Responses saved to {filename}")
-        st.info("You can now proceed to the Persona Generator.")
+            # Save to cached_responses folder
+            os.makedirs("cached_responses", exist_ok=True)
+            filename = f"cached_responses/survey_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            with open(filename, 'w') as f:
+                json.dump(st.session_state['survey_data'], f)
+        
+            st.success(f"Survey completed! Responses saved to {filename}")
+            st.info("You can now proceed to the Persona Generator.")
+    
+    with col2:
+        if 'survey_completed' in st.session_state and st.session_state['survey_completed']:
+            if st.download_button("Download Survey Responses", 
+                                  data=json.dumps(st.session_state['survey_data'], indent=2),
+                                  file_name="survey_responses.json",
+                                  mime="application/json"):
+                st.success("Survey responses downloaded!")
 
 # Persona Generator Tab
 with persona_gen_tab:
@@ -459,10 +491,53 @@ with persona_gen_tab:
     # Initialize StreamlitChatMessageHistory
     msgs = StreamlitChatMessageHistory(key="chat_messages")
     memory = ConversationBufferMemory(chat_memory=msgs, return_messages=True, memory_key="chat_history", output_key="output")
+    
+    # Save and Download buttons
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        if st.button("Save Ongoing Persona"):
+            if st.session_state.processor.ongoing_persona:
+                name = st.session_state.processor.ongoing_persona.get("Name", ["Unknown"])
+                if isinstance(name, list):
+                    name = name[0]
+                elif isinstance(name, str):
+                    name = name
+                else:
+                    name = "Unknown"
+                
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                version = 1
+                while True:
+                    persona_filename = f"generated_personas/{name}_v{version}_{timestamp}.json"
+                    if not os.path.exists(persona_filename):
+                        break
+                    version += 1
 
-    if len(msgs.messages) == 0 or st.button("Reset chat history", key="reset_chat_persona_gen"):
-        msgs.clear()
-        msgs.add_ai_message("How can I help you create or modify the persona?")
+                os.makedirs("generated_personas", exist_ok=True)
+                with open(persona_filename, 'w') as f:
+                    json.dump(st.session_state.processor.ongoing_persona, f, indent=2)
+                
+                st.success(f"Ongoing persona saved as {persona_filename}")
+            else:
+                st.warning("No ongoing persona to save. Please generate a persona first.")
+
+    with col2:
+        if st.session_state.processor.ongoing_persona:
+            if st.download_button(
+                "Download Current Persona", 
+                data=json.dumps(st.session_state.processor.ongoing_persona, indent=2),
+                file_name="current_persona.json",
+                mime="application/json"
+            ):
+                st.success("Current persona downloaded!")
+        else:
+            st.warning("No ongoing persona to download. Please generate a persona first.")
+            
+    with col3:
+        if len(msgs.messages) == 0 or st.button("Reset chat history", key="reset_chat_persona_gen"):
+            msgs.clear()
+            msgs.add_ai_message("How can I help you create or modify the persona?")
+
 
     # Display chat messages
     for msg in msgs.messages:
@@ -492,6 +567,91 @@ with persona_gen_tab:
 
     # Control Panel
     st.subheader("Control Panel")
+    
+    with st.expander("Process Survey Responses", expanded=False):
+        # Get list of cached survey responses
+        cached_responses_dir = "cached_responses"
+        if os.path.exists(cached_responses_dir):
+            cached_files = [f for f in os.listdir(cached_responses_dir) if f.endswith('.json')]
+            cached_files.sort(key=lambda x: os.path.getmtime(os.path.join(cached_responses_dir, x)), reverse=True)
+        else:
+            cached_files = []
+
+        # Dropdown to select cached response
+        selected_cache = st.selectbox("Select cached survey response:", ["Current Survey"] + cached_files)
+
+        if selected_cache == "Current Survey":
+            survey_data = st.session_state.get('survey_data', {})
+        elif selected_cache in cached_files:
+            with open(os.path.join(cached_responses_dir, selected_cache), 'r') as f:
+                survey_data = json.load(f)
+        else:
+            survey_data = {}
+
+        if survey_data:
+            # Check if survey_data is a string (JSON) and convert it to a dictionary if needed
+            if isinstance(survey_data, str):
+                try:
+                    survey_data = json.loads(survey_data)
+                except json.JSONDecodeError:
+                    st.error("Error: Survey data is not in valid JSON format.")
+                    survey_data = {}
+            
+            if isinstance(survey_data, dict) and survey_data:
+                # Convert the survey data to a DataFrame for the data editor
+                df = pd.DataFrame(survey_data.items(), columns=['Question', 'Response'])
+                
+                # Create a data editor for the survey responses
+                edited_df = st.data_editor(
+                    df,
+                    column_config={
+                        "Question": st.column_config.TextColumn("Survey Question"),
+                        "Response": st.column_config.TextColumn("Your Response"),
+                    },
+                    disabled=["Question"],
+                    hide_index=True,
+                    num_rows="dynamic",
+                    key="survey_data_editor"
+                )
+                
+                if st.button("Process Selected Survey Responses"):
+                    # Convert the edited DataFrame back to a dictionary
+                    selected_data = dict(zip(edited_df['Question'], edited_df['Response']))
+                    
+                    # Convert selected survey data to a string format
+                    selected_data_str = json.dumps(selected_data, indent=2)
+                    
+                    # Use the custom prompt
+                    prompt = st.session_state.survey_processing_prompt.format(survey_data=selected_data_str)
+                    
+                    # Add the user message to the chat history
+                    msgs.add_user_message({st.session_state.survey_processing_prompt})
+                    
+                    # Process the prompt with the LLM
+                    full_response = ""
+                    for chunk in st.session_state.processor.process_with_llm(prompt):
+                        full_response += chunk
+                    
+                    # Add the AI response to the chat history
+                    msgs.add_ai_message(full_response)
+                    
+                    # Try to parse the response as JSON
+                    try:
+                        processed_persona = json.loads(full_response)
+                        st.session_state.processor.update_ongoing_persona(processed_persona)
+                        st.success("Persona updated based on survey responses!")
+                    except json.JSONDecodeError:
+                        st.warning("The LLM response was not in valid JSON format. Using text extraction method.")
+                        st.session_state.processor.extract_info_from_text(full_response)
+                    
+                    # Force a rerun to update the chat display
+                    st.rerun()
+
+            else:
+                st.warning("Survey data is empty or in an unexpected format.")
+        else:
+            st.warning("No survey data available. Please complete the survey first or select a cached response.")
+    
     
     with st.expander("Rerank Persona"):
         desired_job = st.text_input("Enter desired job for reranking:")
@@ -525,71 +685,10 @@ with persona_gen_tab:
         
             st.success(f"Comparison result saved as {comparison_filename}")
 
-    # Save and Download buttons
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("Save Ongoing Persona"):
-            name = st.session_state.processor.ongoing_persona.get("Name", ["Unknown"])[0]
-            version = 1
-            while True:
-                persona_filename = f"generated_personas/{name}_v{version}_{datetime.now().strftime('%Y%m%d')}.json"
-                if not os.path.exists(persona_filename):
-                    break
-                version += 1
-
-            os.makedirs("generated_personas", exist_ok=True)
-            with open(persona_filename, 'w') as f:
-                json.dump(st.session_state.processor.ongoing_persona, f, indent=2)
-            
-            st.success(f"Ongoing persona saved as {persona_filename}")
-
-    with col2:
-        if st.download_button("Download Current Persona", 
-                               data=json.dumps(st.session_state.processor.ongoing_persona, indent=2),
-                               file_name="current_persona.json",
-                               mime="application/json"):
-            st.success("Current persona downloaded!")
-
     # Display ongoing persona
     st.subheader("Current Ongoing Persona")
     st.json(st.session_state.processor.ongoing_persona)
 
-
-    st.header("Chat Interface")
-    
-    # Initialize StreamlitChatMessageHistory
-    msgs = StreamlitChatMessageHistory(key="chat_messages")
-    memory = ConversationBufferMemory(chat_memory=msgs, return_messages=True, memory_key="chat_history", output_key="output")
-
-    if len(msgs.messages) == 0 or st.button("Reset chat history"):
-        msgs.clear()
-        msgs.add_ai_message("How can I help you create or modify the persona?")
-
-    # Display chat messages
-    for msg in msgs.messages:
-        st.chat_message(msg.type).write(msg.content)
-
-    # Chat input with unique key
-    if prompt := st.chat_input("Ask about the persona or for more information", key="chat_input_persona_gen"):
-        st.chat_message("human").write(prompt)
-
-        with st.chat_message("ai"):
-            response_placeholder = st.empty()
-            full_response = ""
-            for chunk in st.session_state.processor.process_with_llm(prompt):
-                full_response += chunk
-                response_placeholder.markdown(full_response + "▌")
-            response_placeholder.markdown(full_response)
-
-        msgs.add_user_message(prompt)
-        msgs.add_ai_message(full_response)
-
-        # Update ongoing persona
-        try:
-            new_data = json.loads(full_response)
-            st.session_state.processor.update_ongoing_persona(new_data)
-        except json.JSONDecodeError:
-            st.session_state.processor.extract_info_from_text(full_response)
 
     # LLM Configuration
     st.sidebar.header("LLM Configuration")
@@ -620,9 +719,38 @@ with persona_gen_tab:
     if st.sidebar.button("Update System Message"):
         st.session_state.processor.update_system_message(edited_system_message)
         st.sidebar.success("System message updated!")
+        
+    st.sidebar.header("Survey Processing Prompt")
+    if 'survey_processing_prompt' not in st.session_state:
+        st.session_state.survey_processing_prompt = """You are a career coach/ERP specialist. Based on the following survey responses:
+
+        {survey_data}
+
+        Create a detailed persona. Include categories such as Name, Education, Experience, Skills, Strengths, Goals, and Values. If there is anything else that you want to say that you think doesn't directly fit into these categories, I want you to be creative and empathetic and reframe the circumstances and underlying qualities as something that can fit into these categories. Keep your response concise and relevant, and format it as a JSON object.
+        """
+    
+    survey_processing_prompt = st.sidebar.text_area(
+        "Edit Survey Processing Prompt:",
+        value=st.session_state.survey_processing_prompt,
+        height=300
+    )
+    
+    if st.sidebar.button("Update Survey Processing Prompt"):
+        st.session_state.survey_processing_prompt = survey_processing_prompt
+        st.sidebar.success("Survey processing prompt updated!")
 
 with persona_viewer_tab:
     st.header("Spouse-Facing Persona Viewer")
+    
+    #Checks if there are any personas at all
+    persona_dir = "generated_personas"
+    if not os.path.exists(persona_dir):
+        st.error(f"The directory {persona_dir} does not exist.")
+    elif not os.listdir(persona_dir):
+        st.warning(f"The directory {persona_dir} is empty. No personas available.")
+    else:
+        persona_files = [f for f in os.listdir(persona_dir) if f.endswith('.json')]
+        st.write(f"Found {len(persona_files)} persona files: {', '.join(persona_files)}")
     
     col1, col2 = st.columns([3, 1])
     
@@ -638,17 +766,27 @@ with persona_viewer_tab:
         else:
             selected_persona = st.selectbox("Select a persona to view", ["None"] + persona_files)
 
+        if st.button("Debug: Check Current State"):
+            st.write("Current persona viewer data:", st.session_state.get('persona_viewer_data'))
+            st.write("Selected persona:", selected_persona)
+
     with col2:
         if st.button("Apply Selected Persona"):
             if selected_persona and selected_persona != "None":
-                persona = st.session_state.processor.load_persona(selected_persona)
-                if persona:
+                try:
+                    full_path = os.path.join("generated_personas", selected_persona)
+                    st.write(f"Attempting to load: {full_path}")
+                    with open(full_path, 'r') as f:
+                        persona = json.load(f)
                     st.session_state['persona_viewer_data'] = persona
                     st.success(f"Applied persona: {selected_persona}")
-                else:
-                    st.error("Failed to load the selected persona.")
+                except Exception as e:
+                    st.error(f"Failed to load the selected persona: {str(e)}")
             else:
                 st.warning("No persona selected.")
+        
+        if st.button("Debug: Check Loaded Persona"):
+            st.write("Loaded persona data:", st.session_state.get('persona_viewer_data'))
 
     if 'persona_viewer_data' in st.session_state and st.session_state['persona_viewer_data']:
         persona = st.session_state['persona_viewer_data']
@@ -662,18 +800,23 @@ with persona_viewer_tab:
             st.image("GTRI Logo.png", use_column_width=True)
         
         with col2:
-            st.header(persona.get("Name", ["Unknown"])[0] if isinstance(persona.get("Name"), list) else persona.get("Name", "Unknown"))
-            st.markdown(persona.get("Description", ["No description available."])[0] if isinstance(persona.get("Description"), list) else persona.get("Description", "No description available."))
+            st.header(persona.get("Name", "Unknown"))
+            st.markdown(persona.get("Description", "No description available."))
         
         def display_tags(items, title, initial_display=None):
             st.markdown(f'<h3 class="section-header">{title}</h3>', unsafe_allow_html=True)
-            tag_html = "".join([f'<span class="tag">{item}</span>' for item in items[:initial_display]])
-            st.markdown(tag_html, unsafe_allow_html=True)
-            
-            if initial_display and len(items) > initial_display:
-                with st.expander("Show more"):
-                    more_tags = "".join([f'<span class="tag">{item}</span>' for item in items[initial_display:]])
-                    st.markdown(more_tags, unsafe_allow_html=True)
+            if isinstance(items, list):
+                tag_html = "".join([f'<span class="tag">{item}</span>' for item in items[:initial_display]])
+                st.markdown(tag_html, unsafe_allow_html=True)
+                
+                if initial_display and len(items) > initial_display:
+                    with st.expander("Show more"):
+                        more_tags = "".join([f'<span class="tag">{item}</span>' for item in items[initial_display:]])
+                        st.markdown(more_tags, unsafe_allow_html=True)
+            elif isinstance(items, str):
+                st.markdown(f'<span class="tag">{items}</span>', unsafe_allow_html=True)
+            else:
+                st.write("No data available")
 
         display_tags(persona.get("Education", []), "Education")
         display_tags(persona.get("Experience", []) + persona.get("Qualifications", []), "Experience & Qualifications")
@@ -695,46 +838,6 @@ with persona_viewer_tab:
         st.markdown('</div>', unsafe_allow_html=True)
     else:
         st.info("No persona data available. Select a persona and click 'Apply Selected Persona' to view it.")
-
-
-# Sidebar
-with st.sidebar:
-    st.header("Job Description Comparison")
-    job_description = st.text_area("Enter Job Description", height=200)
-    if st.button("Compare with Job Description"):
-        if st.session_state.processor.ongoing_persona and job_description:
-            with st.spinner("Analyzing job description..."):
-                comparison_result = st.session_state.processor.compare_with_job_description(
-                    st.session_state.processor.ongoing_persona, job_description
-                )
-            st.subheader("Comparison Result")
-            if isinstance(comparison_result, dict) and "error" in comparison_result:
-                st.error(comparison_result["error"])
-            elif isinstance(comparison_result, dict):
-                st.metric("Match Percentage", f"{comparison_result.get('match_percentage', 0):.2f}%")
-                st.subheader("Strengths")
-                for strength in comparison_result.get('strengths', []):
-                    st.write(f"- {strength}")
-                st.subheader("Gaps")
-                for gap in comparison_result.get('gaps', []):
-                    st.write(f"- {gap}")
-                st.subheader("Recommendations")
-                for recommendation in comparison_result.get('recommendations', []):
-                    st.write(f"- {recommendation}")
-        else:
-            st.warning("Please generate a persona and enter a job description first.")
-
-    # Reranking
-    st.header("Rerank Persona Data")
-    if st.button("Rerank Persona"):
-        if st.session_state.processor.ongoing_persona:
-            reranked_data = st.session_state.processor.rerank(st.session_state.processor.ongoing_persona)
-            st.json(reranked_data)
-            if st.button("Push Reranked Data to Main"):
-                st.session_state.processor.ongoing_persona = reranked_data
-                st.success("Reranked data pushed to main persona.")
-        else:
-            st.warning("No persona data available for reranking.")
 
 # Run the Streamlit app
 if __name__ == "__main__":

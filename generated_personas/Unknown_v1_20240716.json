@@ -1,1 +1,26 @@
-{}
+{
+    "Name": "Alexis Ross",
+    "Education": ["High School"],
+    "Experience": [
+        "1 year retail experience",
+        "Strong adaptability and quick learner",
+        "Tech-savvy - proficient with computer hardware and software"
+    ],
+    "Skills": [
+        "Adaptable",
+        "Quick learner",
+        "Tech-savvy",
+        "Proficient with computer hardware and software"
+    ],
+    "Strengths": [
+        "Flexible schedule",
+        "Eager to work",
+        "Strong adaptability and quick learner"
+    ],
+    "Goals": [
+        "Gain experience",
+        "Learn new skills",
+        "Find employment that aligns with values and goals"
+    ],
+    "Values": ["Community involvement", "Family"]
+}
