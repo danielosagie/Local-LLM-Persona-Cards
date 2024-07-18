@@ -22,32 +22,13 @@ import time
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from langchain.schema import HumanMessage
 import queue
-import sys
 
-# Add this near the top of your file, after the imports
+# Set page config
 st.set_page_config(page_title="LLM Persona Cards", page_icon="🃏", layout="wide")
 
-# Custom CSS for styling
-st.markdown("""
-<style>
-    .main-container {
-        background-color: #2D2D2D;
-        padding: 20px;
-        border-radius: 10px;
-    }
-    .tag {
-        background-color: white;
-        color: black;
-        padding: 5px 10px;
-        border-radius: 15px;
-        margin: 5px;
-        display: inline-block;
-    }
-    .section-header {
-        color: #CCCCCC;
-    }
-</style>
-""", unsafe_allow_html=True)
+# Load custom CSS
+with open('style.css') as f:
+    st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
 
 class StreamHandler(StreamingStdOutCallbackHandler):
     def __init__(self, queue):
@@ -256,6 +237,24 @@ class LLMProcessor:
         except json.JSONDecodeError:
             return {"error": "Failed to parse comparison result"}
 
+    def export_chat_history(self, msgs):
+        chat_history = []
+        for msg in msgs.messages:
+            chat_history.append({
+                "type": msg.type,
+                "content": msg.content
+            })
+        return json.dumps(chat_history, indent=2)
+
+    def import_chat_history(self, chat_history_json, msgs):
+        chat_history = json.loads(chat_history_json)
+        msgs.clear()
+        for msg in chat_history:
+            if msg["type"] == "human":
+                msgs.add_user_message(msg["content"])
+            elif msg["type"] == "ai":
+                msgs.add_ai_message(msg["content"])
+    
     def rerank(self, data):
         st.write("Enter a goal or career choice that will rerank the list of labels:")
         desired_job = st.text_input("Career/Goal:")
@@ -294,7 +293,7 @@ class LLMProcessor:
         return f"Test connection successful. Response: {response}"
 
 # Streamlit app
-st.title("🃏 LLM Persona Cards")
+st.markdown('<h1 class="dashboard_title">🃏 LLM Persona Cards</h1>', unsafe_allow_html=True)
 
 # Initialize session state
 if 'processor' not in st.session_state:
@@ -310,7 +309,7 @@ survey_tab, persona_gen_tab, persona_viewer_tab = st.tabs(["Survey", "Persona Ge
 
 # Survey Tab
 with survey_tab:
-    st.header("Military Spouse Experience Survey")
+    st.markdown('<h2 class="section_title">Military Spouse Experience Survey</h2>', unsafe_allow_html=True)
     
     uploaded_file = st.file_uploader("Upload a survey response file", type="json")
     if uploaded_file is not None:
@@ -483,7 +482,7 @@ with survey_tab:
 
 # Persona Generator Tab
 with persona_gen_tab:
-    st.header("Persona Generator")
+    st.markdown('<h2 class="section_title">Persona Generator</h2>', unsafe_allow_html=True)
 
     # Chat Interface
     st.subheader("Chat Interface")
@@ -493,7 +492,7 @@ with persona_gen_tab:
     memory = ConversationBufferMemory(chat_memory=msgs, return_messages=True, memory_key="chat_history", output_key="output")
     
     # Save and Download buttons
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
         if st.button("Save Ongoing Persona"):
             if st.session_state.processor.ongoing_persona:
@@ -537,6 +536,7 @@ with persona_gen_tab:
         if len(msgs.messages) == 0 or st.button("Reset chat history", key="reset_chat_persona_gen"):
             msgs.clear()
             msgs.add_ai_message("How can I help you create or modify the persona?")
+    
 
 
     # Display chat messages
@@ -691,7 +691,7 @@ with persona_gen_tab:
 
 
     # LLM Configuration
-    st.sidebar.header("LLM Configuration")
+    st.sidebar.markdown('<h2 class="section_title">LLM Configuration</h2>', unsafe_allow_html=True)
     
     llm_option = st.sidebar.radio("Select LLM", ["Local HuggingFace", "HPC Server", "Ollama"])
     
@@ -740,7 +740,7 @@ with persona_gen_tab:
         st.sidebar.success("Survey processing prompt updated!")
 
 with persona_viewer_tab:
-    st.header("Spouse-Facing Persona Viewer")
+    st.markdown('<h2 class="section_title">Spouse-Facing Persona Viewer</h2>', unsafe_allow_html=True)
     
     #Checks if there are any personas at all
     persona_dir = "generated_personas"
@@ -804,11 +804,11 @@ with persona_viewer_tab:
             st.markdown(persona.get("Description", "No description available."))
         
         def display_tags(items, title, initial_display=None):
-            st.markdown(f'<h3 class="section-header">{title}</h3>', unsafe_allow_html=True)
+            st.markdown(f'<h3 class="section_title">{title}</h3>', unsafe_allow_html=True)
             if isinstance(items, list):
                 tag_html = "".join([f'<span class="tag">{item}</span>' for item in items[:initial_display]])
                 st.markdown(tag_html, unsafe_allow_html=True)
-                
+            
                 if initial_display and len(items) > initial_display:
                     with st.expander("Show more"):
                         more_tags = "".join([f'<span class="tag">{item}</span>' for item in items[initial_display:]])
@@ -842,4 +842,4 @@ with persona_viewer_tab:
 # Run the Streamlit app
 if __name__ == "__main__":
     st.sidebar.markdown("---")
-    st.sidebar.markdown("© 2023 LLM Persona Cards")
+    st.sidebar.markdown('<p class="persona_detail">© 2023 LLM Persona Cards</p>', unsafe_allow_html=True)

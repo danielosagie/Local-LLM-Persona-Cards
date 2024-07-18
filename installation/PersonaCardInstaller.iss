@@ -42,17 +42,43 @@ Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFile
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppIcon}"; Tasks: desktopicon; WorkingDir: "{app}"
 
 [Run]
-Filename: "powershell.exe"; Parameters: "-ExecutionPolicy Bypass -File ""{app}\install_dependencies.ps1"""; Description: "Install dependencies"; Flags: runhidden
-Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+Filename: "powershell.exe"; \
+    Parameters: "-ExecutionPolicy Bypass -File ""{app}\install_dependencies.ps1"""; \
+    StatusMsg: "Installing Python and dependencies..."; \
+    Flags: runhidden
 
 [Code]
-function InitializeSetup(): Boolean;
+var
+  ProgressPage: TOutputProgressWizardPage;
+
+procedure InitializeWizard;
 begin
-  Result := True;
-  if not RegKeyExists(HKEY_LOCAL_MACHINE, 'SOFTWARE\Microsoft\PowerShell\1\PowerShellEngine') then
+  ProgressPage := CreateOutputProgressPage('Installing Dependencies', 'Please wait while we install necessary components...');
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  ResultCode: Integer;
+begin
+  if CurStep = ssInstall then
   begin
-    MsgBox('This installer requires PowerShell to be installed.' #13#13 'Please install PowerShell and run this installer again.', mbInformation, MB_OK);
-    Result := False;
+    ProgressPage.Show;
+    try
+      ProgressPage.SetText('Installing Python and dependencies...', '');
+      ProgressPage.SetProgress(0, 0);
+
+      // Run the PowerShell script
+      if not Exec('powershell.exe', 
+          '-ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\install_dependencies.ps1') + '"', 
+          '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+      begin
+        MsgBox('Failed to install dependencies. Error code: ' + IntToStr(ResultCode), mbError, MB_OK);
+      end;
+
+      ProgressPage.SetProgress(100, 100);
+    finally
+      ProgressPage.Hide;
+    end;
   end;
 end;
 
