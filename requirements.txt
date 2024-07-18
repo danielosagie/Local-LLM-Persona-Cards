@@ -1,7 +1,10 @@
-transformers
-torch
-sentence_transformers
-python-dotenv
-altair<5
-streamlit
-langchain
+streamlit>=1.24.0
+st-pages>=0.4.1
+streamlit-survey>=0.1.0
+pandas>=1.3.0
+langchain>=0.0.300
+langchain-community>=0.0.1
+transformers>=4.30.0
+torch>=1.9.0
+sentence-transformers>=2.2.0
+huggingface-hub>=0.14.1
