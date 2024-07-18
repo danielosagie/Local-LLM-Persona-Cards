@@ -356,31 +356,67 @@ with survey_tab:
 
         elif pages.current == 1:
             st.subheader("Work Experience")
-            work_status = survey.radio(
-                "What is your current employment status?",
-                options=["Employed full-time", "Employed part-time", "Self-employed", "Unemployed, seeking work", "Not in the workforce"],
-                horizontal=True
+            work_status = survey.multiselect(
+                "What is your current employment status? (Select all that apply)",
+                options=[
+                    "Employed full-time",
+                    "Employed part-time",
+                    "Self-employed",
+                    "Freelance/Contract work",
+                    "Unemployed, seeking work",
+                    "Not currently in the workforce",
+                    "Student",
+                    "Volunteer",
+                    "Stay-at-home parent/caregiver",
+                    "Retired",
+                    "Other"
+                ]
             )
 
-            if work_status in ["Employed full-time", "Employed part-time", "Self-employed"]:
-                survey.text_input("What field do you work in?")
-                
-                survey.text_area(
-                    "Please describe your most significant work experiences or achievements:"
-                )
+            survey.text_input("If currently employed or previously employed, what field(s) do you work in?")
+            
+            survey.text_area(
+                "Please describe your most significant work experiences, achievements, or volunteer roles:"
+            )
 
-                survey.multiselect(
-                    "What challenges, if any, have you faced in your career due to being a military spouse? (Select all that apply)",
-                    options=[
-                        "Frequent job changes due to relocations",
-                        "Limited job opportunities in duty station locations",
-                        "Difficulty advancing in career",
-                        "Balancing work with family responsibilities",
-                        "Employer bias against military spouses",
-                        "Licensing or certification issues across states",
-                        "Other"
-                    ]
-                )
+            survey.multiselect(
+                "What challenges, if any, have you faced in your career or employment journey due to being a military spouse? (Select all that apply)",
+                options=[
+                    "Frequent job changes due to relocations",
+                    "Limited job opportunities in duty station locations",
+                    "Difficulty advancing in career",
+                    "Balancing work with family responsibilities",
+                    "Employer bias against military spouses",
+                    "Licensing or certification issues across states",
+                    "Gaps in employment history",
+                    "Difficulty finding jobs that match skills/experience",
+                    "Limited networking opportunities",
+                    "Challenges with childcare",
+                    "Difficulty completing education or training programs",
+                    "Other"
+                ]
+            )
+
+            survey.text_area(
+                "If you've faced employment challenges, how have you adapted or what strategies have you used to overcome them?"
+            )
+
+            survey.multiselect(
+                "What types of work arrangements are you most interested in? (Select all that apply)",
+                options=[
+                    "Full-time traditional employment",
+                    "Part-time employment",
+                    "Remote work",
+                    "Flexible hours",
+                    "Self-employment/Entrepreneurship",
+                    "Freelance/Contract work",
+                    "Job sharing",
+                    "Seasonal work",
+                    "Volunteer positions",
+                    "Internships or apprenticeships",
+                    "Other"
+                ]
+            )
 
         elif pages.current == 2:
             st.subheader("Military Spouse Daily Life")
