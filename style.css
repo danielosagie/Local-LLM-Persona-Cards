@@ -1,101 +1,102 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Karla:wght@400;700&family=Inconsolata:wght@600&display=swap');
 
-
-/* Global Styles 
-body {
-    font-family: 'Space Grotesk', sans-serif;
-    color: #f6f6f6;
-    background-color: #131722;
-}
-*/
-
-
-/* Dashboard Padding */
-div.block-container.css-z5fcl4.egzxvld4 {
-    padding: 15px 5rem 40px;
+:root {
+  --gray-6: rgba(242, 242, 242, 1);
 }
 
-/* Container Styling */
-[data-testid="stVerticalBlock"] > [style*="flex-direction: column;"] > [data-testid="stVerticalBlock"] {
-    border: 1px groove #52546a;
-    border-radius: 10px;
-    padding: 10px 25px;
-    box-shadow: -6px 8px 20px 1px #00000052;
+.beta-thrive-card {
+  background-color: transparent;
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  width: 100%;
 }
 
-/* Custom Classes */
-.dashboard_title {
-    font-size: 35px;
-    font-weight: 700;
-    line-height: 1.2;
-    text-align: left;
-    padding-bottom: 35px;
+.beta-thrive-card-v {
+  background-image: url('https://your-image-url.com/gradient.png');
+  background-size: 100% 100%;
+  width: 100%;
+  max-width: 771px;
+  padding: 37px;
+  margin: 0 auto;
 }
 
-.section_title {
-    font-size: 24px;
-    font-weight: 700;
-    text-align: left;
-    padding-top: 20px;
-    padding-bottom: 10px;
+.column {
+  display: flex;
+  flex-direction: column;
+  gap: 17px;
 }
 
-.persona_name {
-    font-size: 30px;
-    font-weight: 900;
-    text-align: left;
-    line-height: 1;
-    padding-bottom: 10px;
+.card-section {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  align-items: flex-start;
+  gap: 13px;
+  padding: 17px;
+  background-color: #1d1a1a;
+  border-radius: 8px;
+  overflow: hidden;
 }
 
-.persona_detail {
-    font-size: 18px;
-    font-weight: 500;
-    text-align: left;
-    line-height: 1.5;
-    padding-bottom: 5px;
+.section-title {
+  font-family: "Karla", sans-serif;
+  font-weight: 400;
+  color: #9e9e9e;
+  font-size: 16px;
 }
 
-.tag {
-    background-color: #ff2929;
-    color: #f6f6f6;
-    padding: 5px 10px;
-    border-radius: 15px;
-    margin: 5px;
-    display: inline-block;
-    font-size: 14px;
+.tag-container {
+  display: flex;
+  flex-wrap: wrap;
+  width: 100%;
+  gap: 11px;
 }
 
-/* Form Styling */
-.stForm {
-    background-color: #0c0e15;
-    border-radius: 10px;
-    padding: 20px;
-    box-shadow: -6px 8px 20px 1px #00000052;
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  background-color: var(--gray-6);
+  border-radius: 24px;
 }
 
-/* Button Styling */
-.stButton > button {
-    background-color: #fd5959;
-    color: #f6f6f6;
-    font-weight: 600;
-    border-radius: 5px;
+.pill-text {
+  font-family: "Inconsolata", monospace;
+  font-weight: 600;
+  color: #000000;
+  font-size: 15px;
+  white-space: nowrap;
 }
 
-/* Dataframe Styling */
-.dataframe {
-    font-size: 14px;
+.quote {
+  background-color: #1d1a1a;
+  border-radius: 8px;
+  padding: 17px;
 }
 
-/* Responsive Design */
-@media (max-width: 768px) {
-    .dashboard_title {
-        font-size: 28px;
-    }
-    .persona_name {
-        font-size: 24px;
-    }
-    .section_title {
-        font-size: 20px;
-    }
+.name {
+  font-family: "Karla", sans-serif;
+  font-weight: 700;
+  color: #ece7f6;
+  font-size: 26px;
+}
+
+.quote-content {
+  font-family: "Inconsolata", monospace;
+  font-weight: 600;
+  color: #eaebf5;
+  font-size: 16px;
+  line-height: 21px;
+}
+
+.edit-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 13px;
+}
+
+.edit-icon {
+  width: 19px;
+  height: 19px;
 }
